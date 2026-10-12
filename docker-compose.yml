@@ -1,0 +1,87 @@
+# Stand Allocation Tracking System
+#   docker compose up -d --build
+#   App:  http://<server-ip>:${APP_PORT}   (frontend; it forwards /api to the backend)
+#   API:  http://<server-ip>:${API_PORT}/api/health
+# Settings come from the .env file next to this one (see .env.example).
+
+name: stand-allocation
+
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: stand-mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-stand_allocation}
+    volumes:
+      - mongo-data:/data/db
+    # Only reachable from the server itself (e.g. Compass over an SSH tunnel), never from the internet
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
+    networks:
+      - stand-net
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    build: ./backend
+    image: stand-allocation-backend
+    container_name: stand-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      PORT: 5000
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB:-stand_allocation}?authSource=admin
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES: ${JWT_EXPIRES:-1d}
+      MAX_ACTIVE_STANDS_PER_USER: ${MAX_ACTIVE_STANDS_PER_USER:-1}
+      # used for links in emails and for CORS
+      CLIENT_URL: ${PUBLIC_URL}
+      CORS_ORIGINS: ${PUBLIC_URL}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-Council Stand Allocation <no-reply@council.local>}
+      CURRENCY: ${CURRENCY:-USD}
+    volumes:
+      - receipts:/app/uploads/receipts
+    ports:
+      - "${API_PORT:-5000}:5000"
+    networks:
+      - stand-net
+
+  frontend:
+    build: ./frontend
+    image: stand-allocation-frontend
+    container_name: stand-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      PORT: 8080
+      API_URL: http://backend:5000
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    networks:
+      - stand-net
+
+networks:
+  stand-net:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  receipts:

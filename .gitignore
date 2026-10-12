@@ -1,0 +1,18 @@
+# secrets (use .env.example as the template)
+.env
+.env.*
+!.env.example
+
+# dependencies and build output
+node_modules/
+dist/
+.angular/
+
+# uploaded receipts (personal data)
+backend/uploads/receipts/*
+!backend/uploads/receipts/.gitkeep
+
+# logs and editor files
+*.log
+.DS_Store
+.idea/
