@@ -76,9 +76,36 @@ The containers run on one Docker network, `stand-net`, and nginx is not used:
 
 Data is kept in the Docker volumes `mongo-data` (database) and `receipts` (uploaded receipts).
 
+### Quick start: `run.sh`
+`run.sh` does the whole deployment in one step. It needs Docker with the Compose plugin.
+
+```bash
+git clone https://github.com/learnmoremb/allocatedstandsystem.git
+cd allocatedstandsystem
+./run.sh
+```
+It then:
+1. Creates `.env` from `.env.example` if there isn't one, with a random `MONGO_ROOT_PASSWORD`, `JWT_SECRET` and `ADMIN_PASSWORD`, and prints the admin login once.
+2. Sets `PUBLIC_URL` to `http://<server-ip>:<APP_PORT>` if it still says `YOUR_SERVER_IP`.
+3. Refuses to start while any secret is still `change-me`.
+4. Builds and starts all containers, waits until every one is healthy (it shows the logs of any that fail), and prints the app URL.
+
+| Command | Does |
+|---|---|
+| `./run.sh` or `./run.sh start` | Build and start everything, wait until healthy |
+| `./run.sh stop` | Stop everything (data is kept) |
+| `./run.sh restart` | Stop, then start again |
+| `./run.sh update` | `git pull`, then rebuild and restart |
+| `./run.sh status` | Show container status |
+| `./run.sh logs [service]` | Follow logs for all services, or one of `mongo`, `pricing`, `backend`, `frontend` |
+| `./run.sh help` | Show this list |
+
+`.env` is not in git. When moving to a server whose database already exists, copy its old `.env` across first. A newly generated `MONGO_ROOT_PASSWORD` would not match the one the database was created with.
+
+### Manual steps
 ```bash
 # 1. copy the project to the server, then in the project folder:
-cp .env.example .env        # (a .env with random secrets is already included; review it)
+cp .env.example .env
 nano .env                   # set PUBLIC_URL=http://<server-ip>:8080 and ADMIN_EMAIL
 
 # 2. build and start
