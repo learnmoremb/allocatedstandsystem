@@ -29,6 +29,15 @@ services:
       retries: 10
       start_period: 20s
 
+  # ML model that suggests stand prices (internal only; the backend calls it)
+  pricing:
+    build: ./pricing
+    image: stand-allocation-pricing
+    container_name: stand-pricing
+    restart: unless-stopped
+    networks:
+      - stand-net
+
   backend:
     build: ./backend
     image: stand-allocation-backend
@@ -37,8 +46,12 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      # price suggestions are optional, so a pricing problem never stops the API
+      pricing:
+        condition: service_started
     environment:
       PORT: 5000
+      PRICING_URL: http://pricing:8000
       MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB:-stand_allocation}?authSource=admin
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES: ${JWT_EXPIRES:-1d}

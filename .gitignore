@@ -16,3 +16,10 @@ backend/uploads/receipts/*
 *.log
 .DS_Store
 .idea/
+
+# pricing model: data and model are generated at build time (see pricing/Dockerfile)
+__pycache__/
+.venv/
+pricing/data/*.csv
+pricing/model/*
+!pricing/model/.gitkeep

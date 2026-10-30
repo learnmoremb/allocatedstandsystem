@@ -45,14 +45,33 @@ Upload any allocation register as a CSV. Column names are flexible: `Stand No`, 
 
 A sample file with planted duplicates: `backend/samples/allocations-with-duplicates.csv`.
 
+## Suggested stand price (ML model) — `pricing/`
+A small Python service suggests a price for a stand from its **location** (area/suburb), **size** (m²) and **land use** (residential, commercial, industrial, institutional).
+
+- **Data:** `generate_data.py` creates a synthetic sales history (6 000 rows). Each location has a base USD/m² rate, each land use has a multiplier, larger stands cost less per m², and about ±8% noise is added. Edit `LOCATIONS` / `LAND_USE` there to match the local market.
+- **Model:** `train.py` fits a scikit-learn `HistGradientBoostingRegressor` on `log(price)`. The inputs are the one-hot encoded area and land use plus `log(size)`. The likely range is the 10th–90th percentile of the errors on held-out data. On the synthetic data: R² ≈ 0.97, mean error ≈ 7%, and the range covers 80% of test prices. The model file is about 1 MB.
+- **Real data:** `python train.py --extra real_sales.csv` (columns `area,landUse,sizeSqm,price`) also learns from actual sales.
+- **API (internal only):** `POST /predict` and `POST /predict/batch` → `{ suggestedPrice, low, high, pricePerSqm, knownArea }`. `knownArea: false` means the model has never seen that area, so the estimate uses an average location and is rough.
+- **In the system:** council and admin users get a **✨ Suggest** button next to *Price* on the stand form (`POST /api/stands/suggest-price`). In CSV imports, rows with an empty `price` are priced by the model. If the service is down, the button returns a clear error and the rest of the system keeps working.
+
+Run it locally (the backend reads `PRICING_URL`, default `http://127.0.0.1:8000`):
+```bash
+cd pricing
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python generate_data.py && .venv/bin/python train.py
+.venv/bin/uvicorn app:app --port 8000
+```
+In Docker, the `pricing` container generates the data and trains the model when the image is built.
+
 ## Deploying on a server with Docker
 
-The three containers run on one Docker network, `stand-net`, and nginx is not used:
+The containers run on one Docker network, `stand-net`, and nginx is not used:
 
 | Service | Container | Port on the server | Purpose |
 |---|---|---|---|
 | `frontend` | stand-frontend | `APP_PORT` (8080) | Angular app served by a small Node server, which also forwards `/api` to the backend |
 | `backend` | stand-backend | `API_PORT` (5000) | Express API |
+| `pricing` | stand-pricing | not published | Python price-suggestion model, called only by the backend |
 | `mongo` | stand-mongo | `127.0.0.1:MONGO_PORT` (27017) | MongoDB with authentication, reachable only from the server itself |
 
 Data is kept in the Docker volumes `mongo-data` (database) and `receipts` (uploaded receipts).
@@ -66,7 +85,7 @@ nano .env                   # set PUBLIC_URL=http://<server-ip>:8080 and ADMIN_E
 docker compose up -d --build
 
 # 3. check
-docker compose ps           # all three should become "healthy"
+docker compose ps           # all should become "healthy"
 curl http://localhost:8080/api/health
 ```
 Open **http://&lt;server-ip&gt;:8080** and sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env`. You will be asked to choose a new password. That admin is created only when the database has no admin yet.

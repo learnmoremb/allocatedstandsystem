@@ -2,7 +2,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { ToastService } from '../../core/toast.service';
-import { Stand } from '../../core/models';
+import { PriceSuggestion, Stand } from '../../core/models';
 import { Badge } from '../../shared/badge';
 import { LabelPipe, MoneyPipe } from '../../shared/pipes';
 
@@ -23,7 +23,7 @@ const EMPTY = { standNumber: '', area: '', sizeSqm: null, landUse: 'residential'
     @if (showImport()) {
       <div class="card form">
         <h3>Bulk import stands</h3>
-        <p class="muted small">Columns: <code>standNumber,area,sizeSqm,landUse,price,depositPercent,description</code>. Stands that already exist in an area are skipped.</p>
+        <p class="muted small">Columns: <code>standNumber,area,sizeSqm,landUse,price,depositPercent,description</code>. Stands that already exist in an area are skipped. Leave <code>price</code> empty to use the suggested price.</p>
         <input type="file" accept=".csv" (change)="importFile = $any($event.target).files?.[0]" />
         <label class="check"><input type="checkbox" [(ngModel)]="importAnnounce" /> Announce imported stands on the news list</label>
         <div><button class="btn btn-primary" (click)="doImport()">Import</button></div>
@@ -43,7 +43,16 @@ const EMPTY = { standNumber: '', area: '', sizeSqm: null, landUse: 'residential'
             <select name="u" [(ngModel)]="form().landUse"><option value="residential">Residential</option><option value="commercial">Commercial</option><option value="industrial">Industrial</option><option value="institutional">Institutional</option></select>
           </label>
           <label>Size (m²) <input type="number" name="s" [(ngModel)]="form().sizeSqm" required min="1" /></label>
-          <label>Price <input type="number" name="p" [(ngModel)]="form().price" required min="0" /></label>
+          <label>Price
+            <div class="row gap">
+              <input type="number" name="p" [(ngModel)]="form().price" required min="0" />
+              <button type="button" class="btn nowrap" (click)="suggestPrice()" [disabled]="suggesting()" title="Estimate from area, size and land use">{{ suggesting() ? '…' : '✨ Suggest' }}</button>
+            </div>
+            @if (suggestion(); as sg) {
+              <span class="muted small">Suggested {{ sg.suggestedPrice | money }} (likely range {{ sg.low | money }} – {{ sg.high | money }}, {{ sg.pricePerSqm | money }}/m²)
+                @if (!sg.knownArea) { <br />⚠ New area for the model: treat this as a rough estimate. }</span>
+            }
+          </label>
           <label>Deposit % <input type="number" name="d" [(ngModel)]="form().depositPercent" min="0" max="100" /></label>
           @if (editingId() && form().status !== 'allocated') {
             <label>Status <select name="st" [(ngModel)]="form().status"><option value="available">Available</option><option value="reserved">Reserved</option><option value="withdrawn">Withdrawn</option></select></label>
@@ -95,6 +104,8 @@ export class StandsManage {
   importErrors = signal<any[]>([]);
   importFile: File | null = null;
   importAnnounce = true;
+  suggestion = signal<PriceSuggestion | null>(null);
+  suggesting = signal(false);
 
   areas = computed(() => [...new Set(this.list().map((s) => s.area))].sort());
   shown = computed(() => this.list().filter((s) => (!this.area() || s.area === this.area()) && (!this.status() || s.status === this.status())));
@@ -105,7 +116,21 @@ export class StandsManage {
   edit(s: Stand | null) {
     this.editingId.set(s?._id ?? null);
     this.form.set(s ? { ...s, allocatedTo: undefined } : { ...EMPTY });
+    this.suggestion.set(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  suggestPrice() {
+    const { area, sizeSqm, landUse } = this.form();
+    if (!area || !(sizeSqm > 0)) return this.toast.error('Enter the area and size first');
+    this.suggesting.set(true);
+    this.api.post<PriceSuggestion>('/stands/suggest-price', { area, sizeSqm, landUse }).subscribe({
+      next: (sg) => {
+        this.suggestion.set(sg);
+        this.form.update((f) => ({ ...f, price: sg.suggestedPrice }));
+        this.suggesting.set(false);
+      },
+      error: (e) => { this.toast.error(errorMessage(e)); this.suggesting.set(false); },
+    });
   }
   save() {
     const id = this.editingId();
@@ -133,8 +158,8 @@ export class StandsManage {
     const fd = new FormData();
     fd.append('file', this.importFile);
     fd.append('announce', String(this.importAnnounce));
-    this.api.post<{ created: number; errors: any[] }>('/stands/import', fd).subscribe({
-      next: (r) => { this.toast.success(`${r.created} stand(s) imported`); this.importErrors.set(r.errors); this.load(); },
+    this.api.post<{ created: number; suggested: number; errors: any[] }>('/stands/import', fd).subscribe({
+      next: (r) => { this.toast.success(`${r.created} stand(s) imported` + (r.suggested ? `, ${r.suggested} priced by the model` : '')); this.importErrors.set(r.errors); this.load(); },
       error: (e) => this.toast.error(errorMessage(e)),
     });
   }

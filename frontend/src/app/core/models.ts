@@ -26,6 +26,16 @@ export interface Stand {
   allocatedTo?: User | null;
 }
 
+/** ML price estimate from POST /stands/suggest-price */
+export interface PriceSuggestion {
+  suggestedPrice: number;
+  low: number;
+  high: number;
+  pricePerSqm: number;
+  knownArea: boolean;
+  modelVersion: string;
+}
+
 export interface Application {
   _id: string;
   applicant: User;
